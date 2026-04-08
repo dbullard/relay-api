@@ -32,6 +32,15 @@ module.exports = async (req, res) => {
       });
     }
 
+    const custom = {
+      source: "relay-app",
+      plan_id: resolvedPlanId
+    };
+
+    if (userId && String(userId).trim().length > 0) {
+      custom.user_id = String(userId).trim();
+    }
+
     const payload = {
       data: {
         type: "checkouts",
@@ -40,11 +49,7 @@ module.exports = async (req, res) => {
             enabled_variants: [Number(variantId)]
           },
           checkout_data: {
-            custom: {
-              source: "relay-app",
-              plan_id: resolvedPlanId || null,
-              user_id: userId || null
-            }
+            custom
           }
         },
         relationships: {
@@ -64,12 +69,12 @@ module.exports = async (req, res) => {
       }
     };
 
-    if (email) {
-      payload.data.attributes.checkout_data.email = email;
+    if (email && String(email).trim().length > 0) {
+      payload.data.attributes.checkout_data.email = String(email).trim();
     }
 
-    if (successUrl) {
-      payload.data.attributes.product_options.redirect_url = successUrl;
+    if (successUrl && String(successUrl).trim().length > 0) {
+      payload.data.attributes.product_options.redirect_url = String(successUrl).trim();
     }
 
     const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
