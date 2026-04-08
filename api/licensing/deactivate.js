@@ -40,15 +40,17 @@ module.exports = async (req, res) => {
       });
     }
 
-    if (!lsResponse.ok) {
-      return res.status(lsResponse.status).json({
+    if (!lsResponse.ok || data?.error) {
+      return res.status(lsResponse.ok ? 400 : lsResponse.status).json({
         ok: false,
         error: data?.error || "License deactivation failed",
         details: data
       });
     }
 
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({
+      ok: true
+    });
   } catch (error) {
     console.error("deactivate error:", error);
     return res.status(500).json({
