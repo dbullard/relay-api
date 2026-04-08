@@ -4,68 +4,163 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { variant } = req.body;
+    const {
+      planId,
+      variant,
+      email,
+      successUrl,
+      userId
+    } = req.body || {};
 
-    let variantId;
+    const resolvedPlanId = normalizePlanId(planId || variant);
+    const variantId = resolveVariantId(resolvedPlanId);
 
-    if (variant === "pro-monthly") {
-      variantId = process.env.LEMON_SQUEEZY_VARIANT_ID_MONTHLY;
-    } else if (variant === "pro-yearly") {
-      variantId = process.env.LEMON_SQUEEZY_VARIANT_ID_YEARLY;
-    } else {
-      return res.status(400).json({ error: "Invalid variant" });
+    if (!variantId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid or missing planId"
+      });
     }
 
-    const response = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`,
-        "Content-Type": "application/vnd.api+json",
-        "Accept": "application/vnd.api+json"
-      },
-      body: JSON.stringify({
-        data: {
-          type: "checkouts",
-          attributes: {
-            checkout_data: {
-              custom: {
-                source: "relay-app"
-              }
+    const apiKey = process.env.LEMON_SQUEEZY_API_KEY;
+    const storeId = process.env.LEMON_SQUEEZY_STORE_ID;
+
+    if (!apiKey || !storeId) {
+      return res.status(500).json({
+        ok: false,
+        error: "Missing Lemon Squeezy configuration"
+      });
+    }
+
+    const payload = {
+      data: {
+        type: "checkouts",
+        attributes: {
+          product_options: {
+            enabled_variants: [Number(variantId)]
+          },
+          checkout_data: {
+            custom: {
+              source: "relay-app",
+              plan_id: resolvedPlanId || null,
+              user_id: userId || null
+            }
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: "stores",
+              id: String(storeId)
             }
           },
-          relationships: {
-            store: {
-              data: {
-                type: "stores",
-                id: process.env.LEMON_SQUEEZY_STORE_ID.toString()
-              }
-            },
-            variant: {
-              data: {
-                type: "variants",
-                id: variantId.toString()
-              }
+          variant: {
+            data: {
+              type: "variants",
+              id: String(variantId)
             }
           }
         }
-      })
+      }
+    };
+
+    if (email) {
+      payload.data.attributes.checkout_data.email = email;
+    }
+
+    if (successUrl) {
+      payload.data.attributes.product_options.redirect_url = successUrl;
+    }
+
+    const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Accept": "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json"
+      },
+      body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
+    const text = await lsResponse.text();
+    console.log("Lemon checkout status:", lsResponse.status);
+    console.log("Lemon checkout body:", text);
+
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      return res.status(502).json({
+        ok: false,
+        error: "Invalid JSON from Lemon Squeezy",
+        raw: text
+      });
+    }
+
+    if (!lsResponse.ok) {
+      return res.status(lsResponse.status).json({
+        ok: false,
+        error: "Failed to create checkout",
+        details: data
+      });
+    }
 
     const checkoutUrl = data?.data?.attributes?.url;
 
     if (!checkoutUrl) {
-      console.error("Invalid response from Lemon Squeezy:", data);
-      return res.status(500).json({ error: "Failed to create checkout" });
+      return res.status(502).json({
+        ok: false,
+        error: "Checkout URL missing from Lemon Squeezy response",
+        details: data
+      });
     }
 
     return res.status(200).json({
-      url: checkoutUrl
+      ok: true,
+      url: checkoutUrl,
+      planId: resolvedPlanId,
+      variantId: String(variantId)
     });
-
-  } catch (err) {
-    console.error("Checkout error:", err);
-    return res.status(500).json({ error: "Server error" });
+  } catch (error) {
+    console.error("checkout error:", error);
+    return res.status(500).json({
+      ok: false,
+      error: error.message || "Server error while creating checkout"
+    });
   }
 };
+
+function normalizePlanId(value) {
+  if (!value || typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase();
+
+  switch (normalized) {
+    case "monthly":
+    case "month":
+    case "pro-monthly":
+    case "relay-pro-monthly":
+      return "pro-monthly";
+
+    case "yearly":
+    case "year":
+    case "annual":
+    case "pro-yearly":
+    case "relay-pro-yearly":
+      return "pro-yearly";
+
+    default:
+      return normalized;
+  }
+}
+
+function resolveVariantId(planId) {
+  switch (planId) {
+    case "pro-monthly":
+      return process.env.LEMON_SQUEEZY_VARIANT_ID_MONTHLY;
+    case "pro-yearly":
+      return process.env.LEMON_SQUEEZY_VARIANT_ID_YEARLY;
+    default:
+      return null;
+  }
+}
