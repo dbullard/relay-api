@@ -48,9 +48,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      ok: true
-    });
+    return res.status(200).json({ ok: true });
   } catch (error) {
     console.error("deactivate error:", error);
     return res.status(500).json({
