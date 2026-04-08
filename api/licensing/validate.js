@@ -4,7 +4,14 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { licenseKey, instanceID } = req.body || {};
+    const {
+      licenseKey,
+      instanceID,
+      deviceFingerprint,
+      appVersion,
+      bundleID,
+      platform
+    } = req.body || {};
 
     if (!licenseKey) {
       return res.status(400).json({
@@ -45,8 +52,8 @@ module.exports = async (req, res) => {
       });
     }
 
-    if (!lsResponse.ok) {
-      return res.status(lsResponse.status).json({
+    if (!lsResponse.ok || data?.error) {
+      return res.status(lsResponse.ok ? 400 : lsResponse.status).json({
         ok: false,
         error: data?.error || "License validation failed",
         details: data
@@ -57,20 +64,31 @@ module.exports = async (req, res) => {
     const instance = data?.instance || {};
     const licenseKeyInfo = data?.license_key || {};
 
+    const entitlement = {
+      licenseKeyMasked: maskKey(licenseKey),
+      licenseKeySuffix: suffixKey(licenseKey),
+      instanceID: instance?.id ? String(instance.id) : (instanceID || null),
+      customerEmail: licenseKeyInfo?.customer_email || null,
+      productName: licenseKeyInfo?.product_name || null,
+      variantName: licenseKeyInfo?.variant_name || null,
+      statusRaw: licenseKeyInfo?.status || (valid ? "active" : "invalid"),
+      expiresAt: normalizeDate(licenseKeyInfo?.expires_at),
+      validatedAt: new Date().toISOString(),
+      isActive: valid,
+      source: "lemonsqueezy"
+    };
+
     return res.status(200).json({
       ok: true,
       gracePeriod: false,
-      entitlement: {
-        licenseKeyMasked: maskKey(licenseKey),
-        instanceID: instance?.id ? String(instance.id) : (instanceID || null),
-        customerEmail: licenseKeyInfo?.customer_email || null,
-        productName: licenseKeyInfo?.product_name || null,
-        variantName: licenseKeyInfo?.variant_name || null,
-        statusRaw: licenseKeyInfo?.status || (valid ? "active" : "invalid"),
-        expiresAt: normalizeDate(licenseKeyInfo?.expires_at),
-        validatedAt: new Date().toISOString(),
-        isActive: valid,
-        source: "lemonsqueezy"
+      entitlement,
+      meta: {
+        valid,
+        instanceName: instance?.name || null,
+        deviceFingerprint: deviceFingerprint || null,
+        appVersion: appVersion || null,
+        bundleID: bundleID || null,
+        platform: platform || null
       }
     });
   } catch (error) {
@@ -83,8 +101,14 @@ module.exports = async (req, res) => {
 };
 
 function maskKey(key) {
-  if (!key || key.length < 8) return "••••";
-  return `${key.slice(0, 4)}••••${key.slice(-4)}`;
+  if (!key) return "••••";
+  const suffix = key.slice(-4);
+  return `••••-••••-••••-${suffix}`;
+}
+
+function suffixKey(key) {
+  if (!key || key.length < 4) return null;
+  return key.slice(-4);
 }
 
 function normalizeDate(value) {
