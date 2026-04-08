@@ -58,19 +58,26 @@ module.exports = async (req, res) => {
           id: mapVariantToPlanId(a),
           variantId: String(item.id),
           displayName: a.name || "Plan",
-          price: a.price ?? null,
+          price: typeof a.price === "number" ? a.price : null,
           priceFormatted: formatPrice(a.price),
-          billingLabel: formatBillingLabel(a.interval, a.interval_count),
+          billingLabel: formatBillingLabel(a.interval, a.interval_count, a.is_subscription),
           isSubscription: Boolean(a.is_subscription),
           interval: a.interval || null,
-          intervalCount: a.interval_count ?? null,
-          sort: a.sort ?? 9999
+          intervalCount: typeof a.interval_count === "number" ? a.interval_count : null,
+          hasFreeTrial: Boolean(a.has_free_trial),
+          trialInterval: a.trial_interval || null,
+          trialIntervalCount: typeof a.trial_interval_count === "number" ? a.trial_interval_count : null,
+          status: a.status || null,
+          sort: typeof a.sort === "number" ? a.sort : 9999
         };
       })
       .sort((lhs, rhs) => lhs.sort - rhs.sort)
       .map(({ sort, ...plan }) => plan);
 
-    return res.status(200).json({ plans });
+    return res.status(200).json({
+      ok: true,
+      plans
+    });
   } catch (error) {
     console.error("plans error:", error);
     return res.status(500).json({
@@ -82,36 +89,44 @@ module.exports = async (req, res) => {
 
 function mapVariantToPlanId(attributes) {
   const name = (attributes?.name || "").toLowerCase();
+  const slug = (attributes?.slug || "").toLowerCase();
 
-  if (name.includes("monthly") || name.includes("month")) {
+  if (name.includes("monthly") || name.includes("month") || slug.includes("monthly")) {
     return "pro-monthly";
   }
 
-  if (name.includes("yearly") || name.includes("year")) {
+  if (name.includes("yearly") || name.includes("year") || name.includes("annual") || slug.includes("yearly")) {
     return "pro-yearly";
   }
 
-  return attributes?.slug || "plan";
+  return slug || "plan";
 }
 
 function formatPrice(cents) {
   if (typeof cents !== "number") return "—";
+
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD"
   }).format(cents / 100);
 }
 
-function formatBillingLabel(interval, intervalCount) {
-  if (!interval) return "One-time purchase";
+function formatBillingLabel(interval, intervalCount, isSubscription) {
+  if (!isSubscription) {
+    return "One-time purchase";
+  }
+
+  if (!interval) {
+    return "Subscription";
+  }
 
   const count = typeof intervalCount === "number" ? intervalCount : 1;
 
   if (count === 1) {
+    if (interval === "day") return "Billed daily";
+    if (interval === "week") return "Billed weekly";
     if (interval === "month") return "Billed monthly";
     if (interval === "year") return "Billed yearly";
-    if (interval === "week") return "Billed weekly";
-    if (interval === "day") return "Billed daily";
   }
 
   return `Billed every ${count} ${interval}${count === 1 ? "" : "s"}`;
