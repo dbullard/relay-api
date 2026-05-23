@@ -10,6 +10,8 @@ export async function sendMagicLinkEmail(
     process.env.RELAY_AUTH_FROM_EMAIL ??
     "Relay <login@auth.ondeckapps.com>";
 
+  const appVerifyUrl = `${verifyUrl}&redirect=app`;
+
   const { data, error } = await resend.emails.send({
     from,
     to: email,
@@ -24,7 +26,7 @@ export async function sendMagicLinkEmail(
 
         <p>
           <a
-            href="${verifyUrl}"
+            href="${appVerifyUrl}"
             style="
               background:#111;
               color:white;
@@ -50,7 +52,7 @@ export async function sendMagicLinkEmail(
     text: `
 Sign in to Relay
 
-${verifyUrl}
+${appVerifyUrl}
 
 This link expires in 15 minutes.
 

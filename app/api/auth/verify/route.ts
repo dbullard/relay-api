@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const token = req.nextUrl.searchParams.get("token");
+    const redirectTarget = req.nextUrl.searchParams.get("redirect");
 
     if (!token) {
       return NextResponse.json(
@@ -69,31 +70,38 @@ export async function GET(req: NextRequest) {
       [magicLink.id]
     );
 
-const jwt = signSessionJwt({
-  userId: user.id,
-  email: user.email,
-});
+    const jwt = signSessionJwt({
+      userId: user.id,
+      email: user.email,
+    });
 
-const sessionHash = hashSessionToken(jwt);
+    const sessionHash = hashSessionToken(jwt);
 
-await client.query(
-`
-insert into sessions (
-  user_id,
-  token_hash,
-  expires_at
-)
-values (
-  $1,
-  $2,
-  now() + interval '30 days'
-)
-`,
-[user.id, sessionHash]
-);
+    await client.query(
+      `
+      insert into sessions (
+        user_id,
+        token_hash,
+        expires_at
+      )
+      values (
+        $1,
+        $2,
+        now() + interval '30 days'
+      )
+      `,
+      [user.id, sessionHash]
+    );
 
 
     await client.query("commit");
+
+    if (redirectTarget === "app") {
+      const appCallbackUrl = new URL("relay://auth/callback");
+      appCallbackUrl.searchParams.set("token", jwt);
+
+      return NextResponse.redirect(appCallbackUrl);
+    }
 
     return NextResponse.json({
       ok: true,
