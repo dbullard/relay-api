@@ -14,6 +14,18 @@ function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
   return false;
 }
 
+function isLicensePro(status: string, expiresAt: string | null) {
+  if (status !== "active" && status !== "inactive") {
+    return false;
+  }
+
+  if (!expiresAt) {
+    return true;
+  }
+
+  return new Date(expiresAt) > new Date();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const token = getBearerToken(req.headers.get("authorization"));
@@ -32,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     const session = verifySessionJwt(token);
 
-    const result = await pool.query(
+    const subscriptionResult = await pool.query(
       `
       select
         provider,
@@ -45,9 +57,34 @@ export async function GET(req: NextRequest) {
       [session.userId]
     );
 
-    const hasPro = result.rows.some((row) =>
+    const licenseResult = await pool.query(
+      `
+      select
+        license_key_masked,
+        customer_email,
+        product_name,
+        variant_name,
+        status,
+        expires_at,
+        source,
+        linked_at,
+        last_validated_at
+      from licenses
+      where user_id = $1
+      order by linked_at desc
+      `,
+      [session.userId]
+    );
+
+    const hasSubscriptionPro = subscriptionResult.rows.some((row) =>
       isSubscriptionPro(row.status, row.current_period_end)
     );
+
+    const hasLicensePro = licenseResult.rows.some((row) =>
+      isLicensePro(row.status, row.expires_at)
+    );
+
+    const hasPro = hasSubscriptionPro || hasLicensePro;
 
     return NextResponse.json({
       pro: hasPro,
@@ -56,7 +93,12 @@ export async function GET(req: NextRequest) {
         id: session.userId,
         email: session.email,
       },
-      subscriptions: result.rows,
+      sources: {
+        subscription: hasSubscriptionPro,
+        license: hasLicensePro,
+      },
+      subscriptions: subscriptionResult.rows,
+      licenses: licenseResult.rows,
     });
   } catch (error) {
     return NextResponse.json(
@@ -64,6 +106,7 @@ export async function GET(req: NextRequest) {
         pro: false,
         authenticated: false,
         subscriptions: [],
+        licenses: [],
         error: error instanceof Error ? error.message : "Invalid session",
       },
       { status: 401 }
