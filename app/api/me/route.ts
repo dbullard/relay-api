@@ -3,9 +3,7 @@ import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
 
 function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
-  if (status === "active" || status === "trialing" || status === "on_trial") {
-    return true;
-  }
+  if (status === "active" || status === "trialing") return true;
 
   if (status === "cancelled" && currentPeriodEnd) {
     return new Date(currentPeriodEnd) > new Date();
@@ -21,8 +19,9 @@ export async function GET(req: NextRequest) {
     if (!token) {
       return NextResponse.json(
         {
-          pro: false,
+          ok: false,
           authenticated: false,
+          pro: false,
           subscriptions: [],
           error: "Missing bearer token",
         },
@@ -45,24 +44,27 @@ export async function GET(req: NextRequest) {
       [session.userId]
     );
 
-    const hasPro = result.rows.some((row) =>
+    const subscriptions = result.rows;
+    const pro = subscriptions.some((row) =>
       isSubscriptionPro(row.status, row.current_period_end)
     );
 
     return NextResponse.json({
-      pro: hasPro,
+      ok: true,
       authenticated: true,
       user: {
         id: session.userId,
         email: session.email,
       },
-      subscriptions: result.rows,
+      pro,
+      subscriptions,
     });
   } catch (error) {
     return NextResponse.json(
       {
-        pro: false,
+        ok: false,
         authenticated: false,
+        pro: false,
         subscriptions: [],
         error: error instanceof Error ? error.message : "Invalid session",
       },
