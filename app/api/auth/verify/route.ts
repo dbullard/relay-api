@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import {
   hashMagicToken,
-  createRandomToken,
   hashSessionToken,
   signSessionJwt,
 } from "@/lib/auth";
@@ -70,21 +69,29 @@ export async function GET(req: NextRequest) {
       [magicLink.id]
     );
 
-    const sessionToken = createRandomToken();
-    const sessionHash = hashSessionToken(sessionToken);
+const jwt = signSessionJwt({
+  userId: user.id,
+  email: user.email,
+});
 
-    await client.query(
-      `
-      insert into sessions (user_id, token_hash, expires_at)
-      values ($1, $2, now() + interval '30 days')
-      `,
-      [user.id, sessionHash]
-    );
+const sessionHash = hashSessionToken(jwt);
 
-    const jwt = signSessionJwt({
-      userId: user.id,
-      email: user.email,
-    });
+await client.query(
+`
+insert into sessions (
+  user_id,
+  token_hash,
+  expires_at
+)
+values (
+  $1,
+  $2,
+  now() + interval '30 days'
+)
+`,
+[user.id, sessionHash]
+);
+
 
     await client.query("commit");
 
