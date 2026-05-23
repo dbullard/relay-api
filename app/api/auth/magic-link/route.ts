@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { createRandomToken, hashMagicToken } from "@/lib/auth";
+import { sendMagicLinkEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,12 +33,34 @@ export async function POST(req: NextRequest) {
 
     const isDev = process.env.NODE_ENV !== "production";
 
-return NextResponse.json({
-  ok: true,
-  message: "Magic link created",
-  verifyUrl,
-  ...(isDev ? { devOnlyToken: token } : {}),
-});
+    try {
+      await sendMagicLinkEmail(email, verifyUrl);
+    } catch (emailError) {
+      await pool.query(
+        `
+        delete from magic_links
+        where token_hash = $1
+        `,
+        [tokenHash]
+      );
+
+      console.error("[AUTH] Failed to send magic link email", emailError);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Failed to send magic link",
+          ...(isDev ? { verifyUrl, devOnlyToken: token } : {}),
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Magic link sent",
+      ...(isDev ? { verifyUrl, devOnlyToken: token } : {}),
+    });
   } catch (error) {
     return NextResponse.json(
       {
