@@ -30,12 +30,14 @@ export async function POST(req: NextRequest) {
 
     const verifyUrl = `${baseUrl}/api/auth/verify?token=${token}`;
 
-    return NextResponse.json({
-      ok: true,
-      message: "Magic link created",
-      verifyUrl,
-      devOnlyToken: token
-    });
+    const isDev = process.env.NODE_ENV !== "production";
+
+return NextResponse.json({
+  ok: true,
+  message: "Magic link created",
+  verifyUrl,
+  ...(isDev ? { devOnlyToken: token } : {}),
+});
   } catch (error) {
     return NextResponse.json(
       {
