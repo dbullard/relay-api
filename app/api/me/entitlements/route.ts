@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { decryptLicenseKey } from "@/lib/licenseVault";
+
+type LemonLicenseValidationResponse = {
+  valid?: boolean;
+  error?: string;
+  license_key?: {
+    status?: string;
+    activation_limit?: number;
+    activation_usage?: number;
+    expires_at?: string | null;
+  };
+  meta?: {
+    customer_email?: string | null;
+    product_name?: string | null;
+    variant_name?: string | null;
+  };
+};
 
 function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
   if (
@@ -29,6 +46,37 @@ function isLicensePro(status: string, expiresAt: string | null) {
   }
 
   return new Date(expiresAt) > new Date();
+}
+
+function isValidLicenseStatus(status: string | undefined) {
+  return status === "active" || status === "inactive";
+}
+
+function normalizeDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function validateLicenseKey(licenseKey: string) {
+  const response = await fetch("https://api.lemonsqueezy.com/v1/licenses/validate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({
+      license_key: licenseKey,
+    }),
+  });
+
+  const data = (await response.json()) as LemonLicenseValidationResponse;
+
+  if (!response.ok) {
+    throw new Error(data.error ?? "Lemon license validation failed");
+  }
+
+  return data;
 }
 
 export async function GET(req: NextRequest) {
@@ -70,6 +118,7 @@ export async function GET(req: NextRequest) {
         product_name,
         variant_name,
         status,
+        encrypted_license_key,
         activation_usage_count,
         activation_limit,
         expires_at,
@@ -83,11 +132,78 @@ export async function GET(req: NextRequest) {
       [session.userId]
     );
 
+    const refreshedLicenses = await Promise.all(
+      licenseResult.rows.map(async (row) => {
+        if (row.source !== "lemonsqueezy" || !row.encrypted_license_key) {
+          const { encrypted_license_key: _, ...license } = row;
+          return license;
+        }
+
+        try {
+          const validation = await validateLicenseKey(
+            decryptLicenseKey(row.encrypted_license_key)
+          );
+          const status = validation.license_key?.status ?? row.status;
+          const refreshed = {
+            ...row,
+            customer_email:
+              validation.meta?.customer_email ?? row.customer_email,
+            product_name: validation.meta?.product_name ?? row.product_name,
+            variant_name: validation.meta?.variant_name ?? row.variant_name,
+            status,
+            activation_usage_count:
+              validation.license_key?.activation_usage ?? row.activation_usage_count,
+            activation_limit:
+              validation.license_key?.activation_limit ?? row.activation_limit,
+            expires_at:
+              normalizeDate(validation.license_key?.expires_at) ?? row.expires_at,
+            last_validated_at: new Date().toISOString(),
+          };
+
+          if (validation.valid && isValidLicenseStatus(status)) {
+            await pool.query(
+              `
+              update licenses
+              set
+                customer_email = $3,
+                product_name = $4,
+                variant_name = $5,
+                status = $6,
+                activation_usage_count = $7,
+                activation_limit = $8,
+                expires_at = $9,
+                last_validated_at = now()
+              where user_id = $1
+                and license_key_masked = $2
+              `,
+              [
+                session.userId,
+                row.license_key_masked,
+                refreshed.customer_email,
+                refreshed.product_name,
+                refreshed.variant_name,
+                refreshed.status,
+                refreshed.activation_usage_count,
+                refreshed.activation_limit,
+                refreshed.expires_at,
+              ]
+            );
+          }
+
+          const { encrypted_license_key: _, ...license } = refreshed;
+          return license;
+        } catch {
+          const { encrypted_license_key: _, ...license } = row;
+          return license;
+        }
+      })
+    );
+
     const hasSubscriptionPro = subscriptionResult.rows.some((row) =>
       isSubscriptionPro(row.status, row.current_period_end)
     );
 
-    const hasLicensePro = licenseResult.rows.some((row) =>
+    const hasLicensePro = refreshedLicenses.some((row) =>
       isLicensePro(row.status, row.expires_at)
     );
 
@@ -105,7 +221,7 @@ export async function GET(req: NextRequest) {
         license: hasLicensePro,
       },
       subscriptions: subscriptionResult.rows,
-      licenses: licenseResult.rows,
+      licenses: refreshedLicenses,
     });
   } catch (error) {
     return NextResponse.json(
