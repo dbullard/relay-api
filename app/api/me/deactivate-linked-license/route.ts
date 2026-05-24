@@ -50,6 +50,32 @@ async function lemonDeactivate(licenseKey: string, instanceID: string) {
   return data;
 }
 
+async function validateLicenseKey(licenseKey: string) {
+  const response = await fetch("https://api.lemonsqueezy.com/v1/licenses/validate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({
+      license_key: licenseKey,
+    }),
+  });
+
+  const data = (await response.json()) as LemonLicenseResponse;
+
+  if (!response.ok || data.error) {
+    throw new Error(data.error ?? "Lemon license validation failed");
+  }
+
+  return data;
+}
+
+function isMissingInstanceError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.toLowerCase().includes("instance_id not found");
+}
+
 function entitlementFromLemon(
   license: {
     license_key_masked: string;
@@ -192,10 +218,19 @@ export async function POST(req: NextRequest) {
     }
 
     const instanceID = String(activationResult.rows[0].instance_id);
-    const lemonResponse = await lemonDeactivate(
-      decryptLicenseKey(license.encrypted_license_key),
-      instanceID
-    );
+    const fullLicenseKey = decryptLicenseKey(license.encrypted_license_key);
+    let lemonResponse: LemonLicenseResponse;
+
+    try {
+      lemonResponse = await lemonDeactivate(fullLicenseKey, instanceID);
+    } catch (error) {
+      if (!isMissingInstanceError(error)) {
+        throw error;
+      }
+
+      lemonResponse = await validateLicenseKey(fullLicenseKey);
+    }
+
     const entitlement = entitlementFromLemon(license, lemonResponse);
 
     await client.query(
@@ -230,6 +265,7 @@ export async function POST(req: NextRequest) {
       `
       update license_activations
       set
+        instance_id = null,
         status = 'inactive',
         last_validated_at = now(),
         last_seen_at = now(),

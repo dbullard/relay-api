@@ -31,6 +31,11 @@ function isValidLicenseStatus(status: string | undefined) {
   return status === "active" || status === "inactive";
 }
 
+function isMissingInstanceError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.toLowerCase().includes("instance_id not found");
+}
+
 async function lemonActivate(licenseKey: string, instanceName: string) {
   const response = await fetch("https://api.lemonsqueezy.com/v1/licenses/activate", {
     method: "POST",
@@ -225,13 +230,23 @@ export async function POST(req: NextRequest) {
 
     if (activationResult.rows.length > 0 && activationResult.rows[0].instance_id) {
       const existingInstanceID = String(activationResult.rows[0].instance_id);
-      const validation = await lemonValidate(fullLicenseKey, existingInstanceID);
-      const status = validation.license_key?.status;
+      try {
+        const validation = await lemonValidate(fullLicenseKey, existingInstanceID);
+        const status = validation.license_key?.status;
 
-      if (Boolean(validation.valid) && isValidLicenseStatus(status)) {
-        lemonResponse = validation;
-        instanceID = existingInstanceID;
-      } else {
+        if (Boolean(validation.valid) && isValidLicenseStatus(status)) {
+          lemonResponse = validation;
+          instanceID = existingInstanceID;
+        } else {
+          lemonResponse = await lemonActivate(fullLicenseKey, instanceName);
+          instanceID = lemonResponse.instance?.id ? String(lemonResponse.instance.id) : null;
+          didActivate = true;
+        }
+      } catch (error) {
+        if (!isMissingInstanceError(error)) {
+          throw error;
+        }
+
         lemonResponse = await lemonActivate(fullLicenseKey, instanceName);
         instanceID = lemonResponse.instance?.id ? String(lemonResponse.instance.id) : null;
         didActivate = true;
