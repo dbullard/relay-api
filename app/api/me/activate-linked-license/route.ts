@@ -170,7 +170,31 @@ export async function POST(req: NextRequest) {
     );
 
     if (licenseResult.rows.length === 0) {
+      const legacyLinkedLicenseResult = await client.query(
+        `
+        select license_key_masked
+        from licenses
+        where user_id = $1
+          and source = 'lemonsqueezy'
+        order by linked_at desc nulls last
+        limit 1
+        `,
+        [session.userId]
+      );
+
       await client.query("rollback");
+
+      if (legacyLinkedLicenseResult.rows.length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "This linked Lemon license was saved before activation sync was available. Re-link the full Lemon key once to sync activation counts.",
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         { ok: false, error: "No linked Lemon Squeezy license found" },
         { status: 404 }
