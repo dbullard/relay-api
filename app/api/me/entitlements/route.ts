@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { resolveAppStoreSubscription } from "@/lib/app-store";
 import { decryptLicenseKey } from "@/lib/licenseVault";
 
 type LemonLicenseValidationResponse = {
@@ -58,6 +59,28 @@ function normalizeDate(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+async function refreshSubscriptionRow(row: {
+  provider: string;
+  status: string;
+  current_period_end: string | null;
+  original_transaction_id: string | null;
+}) {
+  if (row.provider !== "app_store" || !row.original_transaction_id) {
+    return row;
+  }
+
+  try {
+    const resolved = await resolveAppStoreSubscription(row.original_transaction_id);
+    return {
+      ...row,
+      status: resolved.record.status,
+      current_period_end: resolved.record.currentPeriodEnd,
+    };
+  } catch {
+    return row;
+  }
+}
+
 async function validateLicenseKey(licenseKey: string) {
   const response = await fetch("https://api.lemonsqueezy.com/v1/licenses/validate", {
     method: "POST",
@@ -102,12 +125,48 @@ export async function GET(req: NextRequest) {
       select
         provider,
         status,
-        current_period_end
+        current_period_end,
+        original_transaction_id
       from subscriptions
       where user_id = $1
       order by created_at desc
       `,
       [session.userId]
+    );
+
+    const refreshedSubscriptions = await Promise.all(
+      subscriptionResult.rows.map(async (row) => {
+        const refreshed = await refreshSubscriptionRow(row);
+
+        if (
+          refreshed.status !== row.status ||
+          refreshed.current_period_end !== row.current_period_end
+        ) {
+          await pool.query(
+            `
+            update subscriptions
+            set
+              status = $3,
+              current_period_end = $4,
+              updated_at = now()
+            where user_id = $1
+              and provider = $2
+              and (
+                original_transaction_id is not distinct from $5
+              )
+            `,
+            [
+              session.userId,
+              row.provider,
+              refreshed.status,
+              refreshed.current_period_end,
+              row.original_transaction_id,
+            ]
+          );
+        }
+
+        return refreshed;
+      })
     );
 
     const licenseResult = await pool.query(
@@ -199,7 +258,7 @@ export async function GET(req: NextRequest) {
       })
     );
 
-    const hasSubscriptionPro = subscriptionResult.rows.some((row) =>
+    const hasSubscriptionPro = refreshedSubscriptions.some((row) =>
       isSubscriptionPro(row.status, row.current_period_end)
     );
 
@@ -220,7 +279,9 @@ export async function GET(req: NextRequest) {
         subscription: hasSubscriptionPro,
         license: hasLicensePro,
       },
-      subscriptions: subscriptionResult.rows,
+      subscriptions: refreshedSubscriptions.map(
+        ({ original_transaction_id: _, ...subscription }) => subscription
+      ),
       licenses: refreshedLicenses,
     });
   } catch (error) {
