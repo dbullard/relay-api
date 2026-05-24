@@ -2,6 +2,19 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
+type LemonWebhookPayload = {
+  meta?: {
+    event_name?: string;
+    custom_data?: {
+      email?: string;
+    };
+  };
+  data?: {
+    id?: string | number;
+    attributes?: Record<string, unknown>;
+  };
+};
+
 function verifySignature(body: string, signature: string, secret: string) {
   const digest = crypto
     .createHmac("sha256", secret)
@@ -47,7 +60,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let payload: any;
+  let payload: LemonWebhookPayload;
 
   try {
     payload = JSON.parse(body);
@@ -58,7 +71,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const eventName = payload?.meta?.event_name;
+  const eventName = payload?.meta?.event_name ?? "";
   const attributes = payload?.data?.attributes ?? {};
   const dataId = payload?.data?.id ? String(payload.data.id) : null;
 
@@ -81,24 +94,24 @@ export async function POST(req: NextRequest) {
   }
 
   const email =
-    attributes.user_email ??
-    attributes.customer_email ??
-    attributes.email ??
+    stringValue(attributes.user_email) ??
+    stringValue(attributes.customer_email) ??
+    stringValue(attributes.email) ??
     payload?.meta?.custom_data?.email ??
     null;
 
   const subscriptionId =
     dataId ??
-    attributes.subscription_id?.toString() ??
-    attributes.first_subscription_item?.subscription_id?.toString() ??
+    stringValue(attributes.subscription_id) ??
+    nestedSubscriptionId(attributes.first_subscription_item) ??
     null;
 
   const customerId =
-    attributes.customer_id?.toString() ??
-    attributes.customer?.toString() ??
+    stringValue(attributes.customer_id) ??
+    stringValue(attributes.customer) ??
     null;
 
-  const rawStatus = attributes.status ? String(attributes.status) : null;
+  const rawStatus = stringValue(attributes.status);
   const status = normalizeStatus(eventName, rawStatus);
 
   const currentPeriodEnd =
@@ -141,53 +154,28 @@ export async function POST(req: NextRequest) {
 
     const user = userResult.rows[0];
 
-    const existingResult = await client.query(
+    await client.query(
       `
-      select id
-      from subscriptions
-      where provider = 'lemon_squeezy'
-        and provider_subscription_id = $1
-      limit 1
+      insert into subscriptions (
+        user_id,
+        provider,
+        provider_customer_id,
+        provider_subscription_id,
+        status,
+        current_period_end
+      )
+      values ($1, 'lemon_squeezy', $2, $3, $4, $5)
+      on conflict (provider, provider_subscription_id)
+      where provider_subscription_id is not null
+      do update set
+        user_id = excluded.user_id,
+        provider_customer_id = excluded.provider_customer_id,
+        status = excluded.status,
+        current_period_end = excluded.current_period_end,
+        updated_at = now()
       `,
-      [subscriptionId]
+      [user.id, customerId, subscriptionId, status, currentPeriodEnd]
     );
-
-    if (existingResult.rows.length > 0) {
-      await client.query(
-        `
-        update subscriptions
-        set
-          user_id = $1,
-          provider_customer_id = $2,
-          status = $3,
-          current_period_end = $4,
-          updated_at = now()
-        where id = $5
-        `,
-        [
-          user.id,
-          customerId,
-          status,
-          currentPeriodEnd,
-          existingResult.rows[0].id,
-        ]
-      );
-    } else {
-      await client.query(
-        `
-        insert into subscriptions (
-          user_id,
-          provider,
-          provider_customer_id,
-          provider_subscription_id,
-          status,
-          current_period_end
-        )
-        values ($1, 'lemon_squeezy', $2, $3, $4, $5)
-        `,
-        [user.id, customerId, subscriptionId, status, currentPeriodEnd]
-      );
-    }
 
     await client.query("commit");
 
@@ -213,4 +201,22 @@ export async function POST(req: NextRequest) {
   } finally {
     client.release();
   }
+}
+
+function stringValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return String(value);
+}
+
+function nestedSubscriptionId(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeSubscriptionId = (value as { subscription_id?: unknown })
+    .subscription_id;
+  return stringValue(maybeSubscriptionId);
 }

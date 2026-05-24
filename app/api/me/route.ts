@@ -3,7 +3,14 @@ import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
 
 function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
-  if (status === "active" || status === "trialing") return true;
+  if (
+    status === "active" ||
+    status === "trialing" ||
+    status === "on_trial" ||
+    status === "billing_grace_period"
+  ) {
+    return true;
+  }
 
   if (status === "cancelled" && currentPeriodEnd) {
     return new Date(currentPeriodEnd) > new Date();
