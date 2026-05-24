@@ -115,24 +115,38 @@ export async function POST(req: NextRequest) {
     const activationUsageCount = validation.license_key?.activation_usage ?? null;
     const activationLimit = validation.license_key?.activation_limit ?? null;
 
-    const result = await pool.query(
+    const params = [
+      session.userId,
+      maskedLicense.suffix,
+      maskedLicense.masked,
+      customerEmail,
+      validation.meta?.product_name ?? null,
+      validation.meta?.variant_name ?? null,
+      licenseStatus,
+      expiresAt,
+      encryptedLicenseKey,
+      activationUsageCount,
+      activationLimit,
+    ];
+
+    const updateResult = await pool.query(
       `
-      insert into licenses (
-        user_id,
-        license_key_suffix,
-        license_key_masked,
-        customer_email,
-        product_name,
-        variant_name,
-        status,
-        expires_at,
-        encrypted_license_key,
-        activation_usage_count,
-        activation_limit,
-        source,
-        last_validated_at
-      )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'lemonsqueezy', now())
+      update licenses
+      set
+        license_key_suffix = $2,
+        customer_email = $4,
+        product_name = $5,
+        variant_name = $6,
+        status = $7,
+        expires_at = $8,
+        encrypted_license_key = $9,
+        activation_usage_count = $10,
+        activation_limit = $11,
+        source = 'lemonsqueezy',
+        last_validated_at = now()
+      where user_id = $1
+        and license_key_masked = $3
+        and source = 'lemonsqueezy'
       returning
         id,
         license_key_masked,
@@ -147,20 +161,45 @@ export async function POST(req: NextRequest) {
         linked_at,
         last_validated_at
       `,
-      [
-        session.userId,
-        maskedLicense.suffix,
-        maskedLicense.masked,
-        customerEmail,
-        validation.meta?.product_name ?? null,
-        validation.meta?.variant_name ?? null,
-        licenseStatus,
-        expiresAt,
-        encryptedLicenseKey,
-        activationUsageCount,
-        activationLimit,
-      ]
+      params
     );
+
+    const result = updateResult.rows.length > 0
+      ? updateResult
+      : await pool.query(
+          `
+          insert into licenses (
+            user_id,
+            license_key_suffix,
+            license_key_masked,
+            customer_email,
+            product_name,
+            variant_name,
+            status,
+            expires_at,
+            encrypted_license_key,
+            activation_usage_count,
+            activation_limit,
+            source,
+            last_validated_at
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'lemonsqueezy', now())
+          returning
+            id,
+            license_key_masked,
+            customer_email,
+            product_name,
+            variant_name,
+            status,
+            activation_usage_count,
+            activation_limit,
+            expires_at,
+            source,
+            linked_at,
+            last_validated_at
+          `,
+          params
+        );
 
     return NextResponse.json({
       ok: true,
