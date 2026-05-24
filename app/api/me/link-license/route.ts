@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { encryptLicenseKey } from "@/lib/licenseVault";
 
 type LemonLicenseValidationResponse = {
   valid?: boolean;
@@ -110,6 +111,9 @@ export async function POST(req: NextRequest) {
     const maskedLicense = maskLicenseKey(licenseKey);
     const customerEmail = validation.meta?.customer_email ?? session.email;
     const expiresAt = validation.license_key?.expires_at ?? null;
+    const encryptedLicenseKey = encryptLicenseKey(licenseKey);
+    const activationUsageCount = validation.license_key?.activation_usage ?? null;
+    const activationLimit = validation.license_key?.activation_limit ?? null;
 
     const result = await pool.query(
       `
@@ -122,10 +126,13 @@ export async function POST(req: NextRequest) {
         variant_name,
         status,
         expires_at,
+        encrypted_license_key,
+        activation_usage_count,
+        activation_limit,
         source,
         last_validated_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, 'lemonsqueezy', now())
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'lemonsqueezy', now())
       returning
         id,
         license_key_masked,
@@ -133,6 +140,8 @@ export async function POST(req: NextRequest) {
         product_name,
         variant_name,
         status,
+        activation_usage_count,
+        activation_limit,
         expires_at,
         source,
         linked_at,
@@ -147,6 +156,9 @@ export async function POST(req: NextRequest) {
         validation.meta?.variant_name ?? null,
         licenseStatus,
         expiresAt,
+        encryptedLicenseKey,
+        activationUsageCount,
+        activationLimit,
       ]
     );
 

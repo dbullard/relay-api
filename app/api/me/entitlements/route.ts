@@ -70,6 +70,8 @@ export async function GET(req: NextRequest) {
         product_name,
         variant_name,
         status,
+        activation_usage_count,
+        activation_limit,
         expires_at,
         source,
         linked_at,
