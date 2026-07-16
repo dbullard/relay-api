@@ -1,5 +1,5 @@
 create table if not exists public.relay_user_presence (
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   installation_id uuid not null,
   platform text not null check (platform in ('macos', 'ios')),
   app_version text not null,
