@@ -11,8 +11,6 @@ export async function GET(req: NextRequest) {
 
   try {
     const token = req.nextUrl.searchParams.get("token");
-    const redirectTarget = req.nextUrl.searchParams.get("redirect");
-
     if (!token) {
       return NextResponse.json(
         { ok: false, error: "Token required" },
@@ -26,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     const magicResult = await client.query(
       `
-      select id, email
+      select id, email, redirect_target
       from magic_links
       where token_hash = $1
         and used_at is null
@@ -96,11 +94,31 @@ export async function GET(req: NextRequest) {
 
     await client.query("commit");
 
-    if (redirectTarget === "app") {
-      const appCallbackUrl = new URL("relay://auth/callback");
-      appCallbackUrl.searchParams.set("token", jwt);
+    if (magicLink.redirect_target === "dashboard") {
+      const dashboardAdmins = new Set(
+        (process.env.RELAY_DASHBOARD_ADMIN_EMAILS ?? "")
+          .split(",")
+          .map((adminEmail) => adminEmail.trim().toLowerCase())
+          .filter(Boolean)
+      );
 
-      return NextResponse.redirect(appCallbackUrl);
+      if (!dashboardAdmins.has(user.email.toLowerCase())) {
+        return NextResponse.json(
+          { ok: false, error: "Dashboard access denied" },
+          { status: 403 }
+        );
+      }
+
+      const response = NextResponse.redirect(new URL("/dashboard", req.url));
+      response.cookies.set("relay_dashboard_session", jwt, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 30 * 24 * 60 * 60,
+      });
+
+      return response;
     }
 
     return NextResponse.json({

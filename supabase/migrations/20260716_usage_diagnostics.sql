@@ -13,3 +13,7 @@ create index if not exists relay_user_presence_last_seen_at_idx
   on public.relay_user_presence(last_seen_at desc);
 
 alter table public.relay_user_presence enable row level security;
+
+alter table public.magic_links add column if not exists redirect_target text;
+alter table public.magic_links add constraint magic_links_redirect_target_check
+  check (redirect_target is null or redirect_target = 'dashboard');

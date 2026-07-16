@@ -7,10 +7,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const email = String(body.email ?? "").trim().toLowerCase();
+    const redirectTarget = body.redirectTarget;
 
     if (!email || !email.includes("@")) {
       return NextResponse.json(
         { ok: false, error: "Valid email required" },
+        { status: 400 }
+      );
+    }
+
+    if (redirectTarget !== undefined && redirectTarget !== "dashboard") {
+      return NextResponse.json(
+        { ok: false, error: "Invalid redirect target" },
         { status: 400 }
       );
     }
@@ -20,10 +28,10 @@ export async function POST(req: NextRequest) {
 
     await pool.query(
       `
-      insert into magic_links (email, token_hash, expires_at)
-      values ($1, $2, now() + interval '15 minutes')
+      insert into magic_links (email, token_hash, expires_at, redirect_target)
+      values ($1, $2, now() + interval '15 minutes', $3)
       `,
-      [email, tokenHash]
+      [email, tokenHash, redirectTarget ?? null]
     );
 
     const baseUrl =
