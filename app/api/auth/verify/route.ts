@@ -121,6 +121,13 @@ export async function GET(req: NextRequest) {
       return response;
     }
 
+    if (req.nextUrl.searchParams.get("redirect") === "app") {
+      const appCallbackUrl = new URL("relay://auth/callback");
+      appCallbackUrl.searchParams.set("token", jwt);
+
+      return NextResponse.redirect(appCallbackUrl);
+    }
+
     return NextResponse.json({
       ok: true,
       user,
