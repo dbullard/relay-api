@@ -36,18 +36,31 @@ function validatePayload(value: unknown): HeartbeatPayload | null {
 }
 
 export async function POST(req: NextRequest) {
+  const token = getBearerToken(req.headers.get("authorization"));
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "Missing bearer token" }, { status: 401 });
+  }
+
+  let body: unknown;
   try {
-    const token = getBearerToken(req.headers.get("authorization"));
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "Missing bearer token" }, { status: 401 });
-    }
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid heartbeat payload" }, { status: 400 });
+  }
 
-    const payload = validatePayload(await req.json());
-    if (!payload) {
-      return NextResponse.json({ ok: false, error: "Invalid heartbeat payload" }, { status: 400 });
-    }
+  const payload = validatePayload(body);
+  if (!payload) {
+    return NextResponse.json({ ok: false, error: "Invalid heartbeat payload" }, { status: 400 });
+  }
 
-    const session = verifySessionJwt(token);
+  let session: ReturnType<typeof verifySessionJwt>;
+  try {
+    session = verifySessionJwt(token);
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid session" }, { status: 401 });
+  }
+
+  try {
     const tokenHash = hashSessionToken(token);
     const sessionResult = await pool.query(
       `
@@ -80,6 +93,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid session" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unable to record heartbeat" }, { status: 500 });
   }
 }
