@@ -1,6 +1,7 @@
 const { trimLicenseKey, validLicenseKey } = require("../_lib/limits");
 const pool = require("../_lib/pool");
 const { enforce } = require("../_lib/rateLimit");
+const { recordLegacyLicenseTraffic } = require("../_lib/legacyTraffic");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -26,6 +27,14 @@ module.exports = async (req, res) => {
         error: "Missing licenseKey"
       });
     }
+
+    await recordLegacyLicenseTraffic(pool.query.bind(pool), {
+      endpoint: "validate",
+      licenseKey,
+      instanceID,
+      appVersion,
+      secret: process.env.RELAY_LICENSE_ENCRYPTION_SECRET
+    });
 
     const payload = {
       license_key: licenseKey

@@ -1,6 +1,7 @@
 const { trimLicenseKey, validLicenseKey, validInstanceName } = require("../_lib/limits");
 const pool = require("../_lib/pool");
 const { enforce } = require("../_lib/rateLimit");
+const { recordLegacyLicenseTraffic } = require("../_lib/legacyTraffic");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -26,6 +27,13 @@ module.exports = async (req, res) => {
         error: "Missing licenseKey or instanceName"
       });
     }
+
+    await recordLegacyLicenseTraffic(pool.query.bind(pool), {
+      endpoint: "activate",
+      licenseKey,
+      appVersion,
+      secret: process.env.RELAY_LICENSE_ENCRYPTION_SECRET
+    });
 
     const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/licenses/activate", {
       method: "POST",
