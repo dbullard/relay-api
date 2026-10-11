@@ -39,7 +39,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon validate status:", lsResponse.status);
-    console.log("Lemon validate body:", text);
 
     let data = {};
     try {
@@ -47,16 +46,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok || data?.error) {
       return res.status(lsResponse.ok ? 400 : lsResponse.status).json({
         ok: false,
-        error: data?.error || "License validation failed",
-        details: data
+        error: data?.error || "License validation failed"
       });
     }
 
@@ -95,7 +92,7 @@ module.exports = async (req, res) => {
     console.error("validate error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error during license validation"
+      error: "Server error during license validation"
     });
   }
 };

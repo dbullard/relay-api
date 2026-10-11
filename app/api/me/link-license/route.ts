@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
 import { encryptLicenseKey } from "@/lib/licenseVault";
+import { publicServerError } from "@/lib/http";
 
 type LemonLicenseValidationResponse = {
   valid?: boolean;
@@ -211,12 +212,7 @@ export async function POST(req: NextRequest) {
       license: result.rows[0],
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to link license",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("LINK_LICENSE", error, "Unable to link license");
+    return NextResponse.json(body, { status });
   }
 }

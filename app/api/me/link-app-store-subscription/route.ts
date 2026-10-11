@@ -5,6 +5,7 @@ import {
   resolveAppStoreSubscription,
   setAppAccountTokenForSubscription,
 } from "@/lib/app-store";
+import { publicServerError } from "@/lib/http";
 
 export async function POST(req: NextRequest) {
   try {
@@ -107,15 +108,7 @@ export async function POST(req: NextRequest) {
       currentPeriodEnd: resolved.record.currentPeriodEnd,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to link App Store subscription",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("LINK_APP_STORE", error, "Unable to link App Store subscription");
+    return NextResponse.json(body, { status });
   }
 }

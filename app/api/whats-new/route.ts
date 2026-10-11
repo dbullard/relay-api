@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken } from "@/lib/auth";
+import { publicServerError } from "@/lib/http";
 
 type WhatsNewFeature = {
   icon: string;
@@ -48,12 +49,8 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load What's New feed",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("WHATS_NEW_GET", error, "Failed to load What's New feed");
+    return NextResponse.json({ error: body.error }, { status });
   }
 }
 
@@ -105,11 +102,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to save release",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("WHATS_NEW_POST", error, "Failed to save release");
+    return NextResponse.json({ error: body.error }, { status });
   }
 }

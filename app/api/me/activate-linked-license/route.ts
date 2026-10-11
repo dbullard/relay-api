@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
 import { decryptLicenseKey } from "@/lib/licenseVault";
+import { publicServerError } from "@/lib/http";
 
 type LemonLicenseResponse = {
   activated?: boolean;
@@ -356,16 +357,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     await client.query("rollback");
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to activate linked license",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("ACTIVATE_LINKED", error, "Unable to activate linked license");
+    return NextResponse.json(body, { status });
   } finally {
     client.release();
   }

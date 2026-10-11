@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
         authenticated: false,
         pro: false,
         subscriptions: [],
-        error: error instanceof Error ? error.message : "Invalid session",
+        error: "Invalid session",
       },
       { status: 401 }
     );

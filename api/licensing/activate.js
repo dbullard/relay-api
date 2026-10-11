@@ -34,7 +34,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon activate status:", lsResponse.status);
-    console.log("Lemon activate body:", text);
 
     let data = {};
     try {
@@ -42,16 +41,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok || data?.activated === false || data?.error) {
       return res.status(lsResponse.ok ? 400 : lsResponse.status).json({
         ok: false,
-        error: data?.error || "License activation failed",
-        details: data
+        error: data?.error || "License activation failed"
       });
     }
 
@@ -90,7 +87,7 @@ module.exports = async (req, res) => {
     console.error("activate error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error during license activation"
+      error: "Server error during license activation"
     });
   }
 };

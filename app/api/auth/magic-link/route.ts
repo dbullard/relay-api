@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { createRandomToken, hashMagicToken } from "@/lib/auth";
 import { sendMagicLinkEmail } from "@/lib/email";
+import { publicServerError } from "@/lib/http";
 
 export async function POST(req: NextRequest) {
   try {
@@ -70,12 +71,7 @@ export async function POST(req: NextRequest) {
       ...(isDev ? { verifyUrl, devOnlyToken: token } : {}),
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("AUTH_MAGIC_LINK", error);
+    return NextResponse.json(body, { status });
   }
 }

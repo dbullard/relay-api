@@ -89,7 +89,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon checkout status:", lsResponse.status);
-    console.log("Lemon checkout body:", text);
 
     let data = {};
     try {
@@ -97,16 +96,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok) {
       return res.status(lsResponse.status).json({
         ok: false,
-        error: "Failed to create checkout",
-        details: data
+        error: "Failed to create checkout"
       });
     }
 
@@ -115,8 +112,7 @@ module.exports = async (req, res) => {
     if (!checkoutUrl) {
       return res.status(502).json({
         ok: false,
-        error: "Checkout URL missing from Lemon Squeezy response",
-        details: data
+        error: "Checkout URL missing from Lemon Squeezy response"
       });
     }
 
@@ -130,7 +126,7 @@ module.exports = async (req, res) => {
     console.error("checkout error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error while creating checkout"
+      error: "Server error while creating checkout"
     });
   }
 };

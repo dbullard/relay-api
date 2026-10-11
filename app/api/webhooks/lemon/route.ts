@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { publicServerError } from "@/lib/http";
 
 type LemonWebhookPayload = {
   meta?: {
@@ -191,13 +192,8 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     await client.query("rollback");
 
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("LEMON_WEBHOOK", error);
+    return NextResponse.json(body, { status });
   } finally {
     client.release();
   }

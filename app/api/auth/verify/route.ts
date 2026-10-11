@@ -5,6 +5,7 @@ import {
   hashSessionToken,
   signSessionJwt,
 } from "@/lib/auth";
+import { publicServerError } from "@/lib/http";
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
@@ -135,13 +136,8 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     await client.query("rollback");
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("AUTH_VERIFY", error);
+    return NextResponse.json(body, { status });
   } finally {
     client.release();
   }
