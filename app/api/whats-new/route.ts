@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getBearerToken } from "@/lib/auth";
 import { publicServerError } from "@/lib/http";
+import { safeEqual } from "@/lib/signature";
+
+const CHANNEL_RE = /^[a-z0-9-]{1,32}$/;
 
 type WhatsNewFeature = {
   icon: string;
@@ -30,6 +33,9 @@ function isValidFeature(value: unknown): value is WhatsNewFeature {
 export async function GET(req: NextRequest) {
   try {
     const channel = req.nextUrl.searchParams.get("channel") || "release";
+    if (!CHANNEL_RE.test(channel)) {
+      return NextResponse.json({ error: "Invalid channel" }, { status: 400 });
+    }
 
     const result = await pool.query(
       `
@@ -64,7 +70,7 @@ export async function POST(req: NextRequest) {
   }
 
   const token = getBearerToken(req.headers.get("authorization"));
-  if (token !== adminSecret) {
+  if (!token || !safeEqual(token, adminSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -86,6 +92,9 @@ export async function POST(req: NextRequest) {
     }
 
     const resolvedChannel = typeof channel === "string" && channel ? channel : "release";
+    if (!CHANNEL_RE.test(resolvedChannel)) {
+      return NextResponse.json({ error: "Invalid channel" }, { status: 400 });
+    }
 
     await pool.query(
       `

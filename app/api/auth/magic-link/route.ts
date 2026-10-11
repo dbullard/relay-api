@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const redirectTarget = body.redirectTarget;
 
-    if (!email || !email.includes("@")) {
+    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(email)) {
       return NextResponse.json(
         { ok: false, error: "Valid email required" },
         { status: 400 }
@@ -61,11 +61,21 @@ export async function POST(req: NextRequest) {
     );
 
     const baseUrl =
-      process.env.RELAY_API_PUBLIC_URL ?? "http://localhost:3000";
+      process.env.RELAY_API_PUBLIC_URL ??
+      (process.env.NODE_ENV === "production" ? undefined : "http://localhost:3000");
+
+    if (!baseUrl) {
+      await pool.query(`delete from magic_links where token_hash = $1`, [tokenHash]);
+      const { body: errBody, status } = publicServerError(
+        "AUTH_MAGIC_LINK",
+        new Error("RELAY_API_PUBLIC_URL is not configured")
+      );
+      return NextResponse.json(errBody, { status });
+    }
 
     const verifyUrl = `${baseUrl}/api/auth/verify?token=${token}`;
 
-    const isDev = process.env.NODE_ENV !== "production";
+    const isDev = process.env.NODE_ENV === "development";
 
     try {
       await sendMagicLinkEmail(email, verifyUrl);
