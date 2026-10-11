@@ -5,6 +5,7 @@ import { sendMagicLinkEmail } from "@/lib/email";
 import { publicServerError } from "@/lib/http";
 import { checkRateLimit, type Query } from "@/lib/rateLimit";
 import { clientIp } from "@/lib/clientIp";
+import { isValidChallenge } from "@/lib/pkce";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,6 +27,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const codeChallenge = body.codeChallenge;
+    const requirePkce = process.env.RELAY_REQUIRE_PKCE === "true";
+    if (codeChallenge !== undefined && !isValidChallenge(codeChallenge)) {
+      return NextResponse.json({ ok: false, error: "Invalid code challenge" }, { status: 400 });
+    }
+    if (requirePkce && redirectTarget === undefined && codeChallenge === undefined) {
+      return NextResponse.json({ ok: false, error: "Please update Relay to sign in" }, { status: 400 });
+    }
+
     const ip = clientIp(req.headers);
     const ipLimit = await checkRateLimit(pool.query.bind(pool) as Query, `magic:ip:${ip}`, 20, 3600);
     if (!ipLimit.allowed) {
@@ -44,10 +54,10 @@ export async function POST(req: NextRequest) {
 
     await pool.query(
       `
-      insert into magic_links (email, token_hash, expires_at, redirect_target)
-      values ($1, $2, now() + interval '15 minutes', $3)
+      insert into magic_links (email, token_hash, expires_at, redirect_target, code_challenge)
+      values ($1, $2, now() + interval '15 minutes', $3, $4)
       `,
-      [email, tokenHash, redirectTarget ?? null]
+      [email, tokenHash, redirectTarget ?? null, codeChallenge ?? null]
     );
 
     const baseUrl =
