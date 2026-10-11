@@ -1,7 +1,13 @@
+const { validLicenseKey } = require("../_lib/limits");
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).send("Method Not Allowed");
   }
+
+  if (await enforce(req, res, pool, "lic", 30, 60)) return;
 
   try {
     const {
@@ -13,7 +19,7 @@ module.exports = async (req, res) => {
       platform
     } = req.body || {};
 
-    if (!licenseKey) {
+    if (!validLicenseKey(licenseKey) || (instanceID && (typeof instanceID !== "string" || instanceID.length > 128))) {
       return res.status(400).json({
         ok: false,
         error: "Missing licenseKey"

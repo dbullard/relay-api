@@ -1,7 +1,12 @@
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
     return res.status(405).send("Method Not Allowed");
   }
+
+  if (await enforce(req, res, pool, "plans", 60, 60)) return;
 
   try {
     const apiKey = process.env.LEMON_SQUEEZY_API_KEY;

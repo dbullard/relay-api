@@ -1,15 +1,19 @@
+const { validEmail } = require("../_lib/limits");
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).send("Method Not Allowed");
   }
 
+  if (await enforce(req, res, pool, "checkout", 10, 3600)) return;
+
   try {
     const {
       planId,
       variant,
-      email,
-      successUrl,
-      userId
+      email
     } = req.body || {};
 
     const resolvedPlanId = normalizePlanId(planId || variant);
@@ -36,10 +40,6 @@ module.exports = async (req, res) => {
       source: "relay-app",
       plan_id: resolvedPlanId
     };
-
-    if (userId && String(userId).trim().length > 0) {
-      custom.user_id = String(userId).trim();
-    }
 
     const payload = {
       data: {
@@ -69,12 +69,8 @@ module.exports = async (req, res) => {
       }
     };
 
-    if (email && String(email).trim().length > 0) {
-      payload.data.attributes.checkout_data.email = String(email).trim();
-    }
-
-    if (successUrl && String(successUrl).trim().length > 0) {
-      payload.data.attributes.product_options.redirect_url = String(successUrl).trim();
+    if (validEmail(email)) {
+      payload.data.attributes.checkout_data.email = email.trim();
     }
 
     const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
