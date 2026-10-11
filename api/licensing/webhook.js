@@ -8,6 +8,10 @@ module.exports = async (req, res) => {
   const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
   const signature = req.headers["x-signature"];
 
+  if (!secret) {
+    return res.status(500).send("Server error");
+  }
+
   // Get RAW body (this is the key fix)
   const chunks = [];
 
@@ -22,7 +26,9 @@ module.exports = async (req, res) => {
     .update(rawBody)
     .digest("hex");
 
-  if (digest !== signature) {
+  const received = Buffer.from(String(signature || ""));
+  const expected = Buffer.from(digest);
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
     console.error("❌ Invalid signature");
     return res.status(401).send("Invalid signature");
   }
