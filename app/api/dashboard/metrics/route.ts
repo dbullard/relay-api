@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashSessionToken, verifySessionJwt } from "@/lib/auth";
 import { pool } from "@/lib/db";
+import { LEGACY_LICENSE_METRICS_SQL, legacyLicenseMetricsFromRow } from "@/lib/legacyLicenseMetrics";
 
 type Version = {
   platform: string;
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
-    const [activeUsersResult, activeInstallationsResult, relayAccountsResult, versionsResult] =
+    const [activeUsersResult, activeInstallationsResult, relayAccountsResult, versionsResult, legacyLicenseResult] =
       await Promise.all([
         pool.query(`
           select count(distinct user_id)::int as active_users
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
           from relay_user_presence where last_seen_at >= now() - interval '5 minutes'
           group by platform, app_version order by active_users desc, platform, app_version;
         `),
+        pool.query(LEGACY_LICENSE_METRICS_SQL),
       ]);
 
     const versions: Version[] = versionsResult.rows.map((row) => ({
@@ -75,6 +77,7 @@ export async function GET(req: NextRequest) {
       activeInstallations: activeInstallationsResult.rows[0].active_installations,
       relayAccounts: relayAccountsResult.rows[0].relay_accounts,
       versions,
+      legacyLicense: legacyLicenseMetricsFromRow(legacyLicenseResult.rows[0]),
     });
   } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

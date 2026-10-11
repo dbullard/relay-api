@@ -7,6 +7,7 @@ type Metrics = {
   activeInstallations: number;
   relayAccounts: number;
   versions: Array<{ platform: string; appVersion: string; activeUsers: number }>;
+  legacyLicense: { last1Day: number; last7Days: number; last30Days: number; lastActivityDay: string | null };
 };
 
 export default function DashboardClient() {
@@ -41,12 +42,16 @@ export default function DashboardClient() {
     { title: "Opt-in signed-in users — Active now", value: metrics?.activeUsers ?? "—" },
     { title: "Opt-in signed-in users — Active installations now", value: metrics?.activeInstallations ?? "—" },
     { title: "Relay Accounts", value: metrics?.relayAccounts ?? "—" },
+    { title: "Legacy paid-build clients — last 1 day", value: metrics?.legacyLicense.last1Day ?? "—" },
+    { title: "Legacy paid-build clients — last 7 days", value: metrics?.legacyLicense.last7Days ?? "—" },
+    { title: "Legacy paid-build clients — last 30 days", value: metrics?.legacyLicense.last30Days ?? "—" },
+    { title: "Last legacy license activity (retire the old endpoints 30+ days after this date)", value: metrics?.legacyLicense.lastActivityDay ?? "none" },
   ];
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-12">
       <h1 className="text-3xl font-semibold">Relay dashboard</h1>
-      <p className="mt-2 text-sm text-zinc-600">Aggregate, opt-in usage diagnostics.</p>
+      <p className="mt-2 text-sm text-zinc-600">Aggregate usage diagnostics (opt-in) and legacy license activity.</p>
       {error && <p className="mt-4 text-sm text-red-700">{error}</p>}
       <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
