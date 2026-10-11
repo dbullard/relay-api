@@ -30,10 +30,10 @@ test("valid JWT and live session → ok, queried by user and token hash", async 
   assert.match(String(seen[1]), /^[0-9a-f]{64}$/); // sha256 hex, never the raw token
 });
 
-test("database error → 401 invalid session, not a throw", async () => {
+test("database error → 503 (never 401, which signs the app out)", async () => {
   const original = console.error; console.error = () => {};
   try {
     const r = await authenticateBearer("Bearer good.jwt", async () => { throw new Error("db"); }, goodVerify);
-    assert.equal(r.ok, false);
+    assert.deepEqual(r, { ok: false, status: 503, error: "Service temporarily unavailable" });
   } finally { console.error = original; }
 });

@@ -1,4 +1,4 @@
-const { validLicenseKey } = require("../_lib/limits");
+const { trimLicenseKey, validLicenseKey } = require("../_lib/limits");
 const pool = require("../_lib/pool");
 const { enforce } = require("../_lib/rateLimit");
 
@@ -10,7 +10,8 @@ module.exports = async (req, res) => {
   if (await enforce(req, res, pool, "lic", 30, 60)) return;
 
   try {
-    const { licenseKey, instanceID } = req.body || {};
+    const { licenseKey: rawLicenseKey, instanceID } = req.body || {};
+    const licenseKey = trimLicenseKey(rawLicenseKey);
 
     if (!validLicenseKey(licenseKey) || typeof instanceID !== "string" || !instanceID || instanceID.length > 128) {
       return res.status(400).json({

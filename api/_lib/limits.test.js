@@ -21,3 +21,9 @@ test("emails", () => {
   assert.equal(validEmail("no-at-sign"), false);
   assert.equal(validEmail("a@" + "b".repeat(260)), false);
 });
+
+test("trimLicenseKey strips surrounding whitespace", () => {
+  const { trimLicenseKey } = require("./limits");
+  assert.equal(trimLicenseKey("  38b1460a-5104\n"), "38b1460a-5104");
+  assert.equal(trimLicenseKey(undefined), undefined);
+});

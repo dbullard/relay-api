@@ -13,7 +13,7 @@ export async function authenticateBearer(
   verify: (token: string) => Claims
 ): Promise<
   | { ok: true; session: Claims }
-  | { ok: false; status: 401; error: string }
+  | { ok: false; status: 401 | 503; error: string }
 > {
   const token = bearer(authHeader);
   if (!token) return { ok: false, status: 401, error: "Missing bearer token" };
@@ -37,6 +37,7 @@ export async function authenticateBearer(
     return { ok: true, session: claims };
   } catch (error) {
     console.error("[SESSION] lookup failed", error instanceof Error ? error.message : error);
-    return { ok: false, status: 401, error: "Invalid session" };
+    // 503, not 401: the app treats 401 as "session invalid" and signs the user out.
+    return { ok: false, status: 503, error: "Service temporarily unavailable" };
   }
 }
