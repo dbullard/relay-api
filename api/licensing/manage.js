@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
     console.error("manage error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error while building manage subscription URL"
+      error: "Server error while building manage subscription URL"
     });
   }
 };

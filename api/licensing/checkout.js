@@ -1,15 +1,19 @@
+const { validEmail } = require("../_lib/limits");
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).send("Method Not Allowed");
   }
 
+  if (await enforce(req, res, pool, "checkout", 10, 3600)) return;
+
   try {
     const {
       planId,
       variant,
-      email,
-      successUrl,
-      userId
+      email
     } = req.body || {};
 
     const resolvedPlanId = normalizePlanId(planId || variant);
@@ -36,10 +40,6 @@ module.exports = async (req, res) => {
       source: "relay-app",
       plan_id: resolvedPlanId
     };
-
-    if (userId && String(userId).trim().length > 0) {
-      custom.user_id = String(userId).trim();
-    }
 
     const payload = {
       data: {
@@ -69,12 +69,8 @@ module.exports = async (req, res) => {
       }
     };
 
-    if (email && String(email).trim().length > 0) {
-      payload.data.attributes.checkout_data.email = String(email).trim();
-    }
-
-    if (successUrl && String(successUrl).trim().length > 0) {
-      payload.data.attributes.product_options.redirect_url = String(successUrl).trim();
+    if (validEmail(email)) {
+      payload.data.attributes.checkout_data.email = email.trim();
     }
 
     const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
@@ -89,7 +85,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon checkout status:", lsResponse.status);
-    console.log("Lemon checkout body:", text);
 
     let data = {};
     try {
@@ -97,16 +92,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok) {
       return res.status(lsResponse.status).json({
         ok: false,
-        error: "Failed to create checkout",
-        details: data
+        error: "Failed to create checkout"
       });
     }
 
@@ -115,8 +108,7 @@ module.exports = async (req, res) => {
     if (!checkoutUrl) {
       return res.status(502).json({
         ok: false,
-        error: "Checkout URL missing from Lemon Squeezy response",
-        details: data
+        error: "Checkout URL missing from Lemon Squeezy response"
       });
     }
 
@@ -130,7 +122,7 @@ module.exports = async (req, res) => {
     console.error("checkout error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error while creating checkout"
+      error: "Server error while creating checkout"
     });
   }
 };

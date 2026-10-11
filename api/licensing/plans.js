@@ -1,7 +1,12 @@
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
     return res.status(405).send("Method Not Allowed");
   }
+
+  if (await enforce(req, res, pool, "plans", 60, 60)) return;
 
   try {
     const apiKey = process.env.LEMON_SQUEEZY_API_KEY;
@@ -30,7 +35,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon plans status:", lsResponse.status);
-    console.log("Lemon plans body:", text);
 
     let data = {};
     try {
@@ -38,16 +42,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok) {
       return res.status(lsResponse.status).json({
         ok: false,
-        error: "Failed to load plans",
-        details: data
+        error: "Failed to load plans"
       });
     }
 
@@ -82,7 +84,7 @@ module.exports = async (req, res) => {
     console.error("plans error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error while loading plans"
+      error: "Server error while loading plans"
     });
   }
 };

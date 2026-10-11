@@ -1,16 +1,10 @@
 import crypto from "crypto";
 
-function encryptionSecret() {
-  return process.env.RELAY_LICENSE_ENCRYPTION_SECRET ?? process.env.JWT_SECRET;
-}
-
 function encryptionKey() {
-  const secret = encryptionSecret();
-
+  const secret = process.env.RELAY_LICENSE_ENCRYPTION_SECRET;
   if (!secret) {
-    throw new Error("Missing license encryption secret");
+    throw new Error("RELAY_LICENSE_ENCRYPTION_SECRET is required");
   }
-
   return crypto.createHash("sha256").update(secret).digest();
 }
 

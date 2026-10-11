@@ -24,6 +24,7 @@ export async function GET(request: Request) {
       delete from relay_user_presence
       where last_seen_at < now() - interval '30 days'
     `);
+    await pool.query("delete from rate_limits where window_start < now() - interval '1 day'");
 
     return new Response(null, { status: 204 });
   } catch {

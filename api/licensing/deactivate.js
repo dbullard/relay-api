@@ -1,12 +1,19 @@
+const { trimLicenseKey, validLicenseKey } = require("../_lib/limits");
+const pool = require("../_lib/pool");
+const { enforce } = require("../_lib/rateLimit");
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).send("Method Not Allowed");
   }
 
-  try {
-    const { licenseKey, instanceID } = req.body || {};
+  if (await enforce(req, res, pool, "lic", 30, 60)) return;
 
-    if (!licenseKey || !instanceID) {
+  try {
+    const { licenseKey: rawLicenseKey, instanceID } = req.body || {};
+    const licenseKey = trimLicenseKey(rawLicenseKey);
+
+    if (!validLicenseKey(licenseKey) || typeof instanceID !== "string" || !instanceID || instanceID.length > 128) {
       return res.status(400).json({
         ok: false,
         error: "Missing licenseKey or instanceID"
@@ -27,7 +34,6 @@ module.exports = async (req, res) => {
 
     const text = await lsResponse.text();
     console.log("Lemon deactivate status:", lsResponse.status);
-    console.log("Lemon deactivate body:", text);
 
     let data = {};
     try {
@@ -35,16 +41,14 @@ module.exports = async (req, res) => {
     } catch {
       return res.status(502).json({
         ok: false,
-        error: "Invalid JSON from Lemon Squeezy",
-        raw: text
+        error: "Invalid JSON from Lemon Squeezy"
       });
     }
 
     if (!lsResponse.ok || data?.error) {
       return res.status(lsResponse.ok ? 400 : lsResponse.status).json({
         ok: false,
-        error: data?.error || "License deactivation failed",
-        details: data
+        error: data?.error || "License deactivation failed"
       });
     }
 
@@ -55,7 +59,7 @@ module.exports = async (req, res) => {
     console.error("deactivate error:", error);
     return res.status(500).json({
       ok: false,
-      error: error.message || "Server error during license deactivation"
+      error: "Server error during license deactivation"
     });
   }
 };

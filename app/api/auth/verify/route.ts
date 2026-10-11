@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import {
+  createRandomToken,
   hashMagicToken,
   hashSessionToken,
   signSessionJwt,
 } from "@/lib/auth";
+import { publicServerError } from "@/lib/http";
+import { checkRateLimit, type Query } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/clientIp";
 
 export async function GET(req: NextRequest) {
+  const verifyLimit = await checkRateLimit(
+    pool.query.bind(pool) as Query,
+    `verify:ip:${clientIp(req.headers)}`,
+    30,
+    600
+  );
+  if (!verifyLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(verifyLimit.retryAfterSeconds) } }
+    );
+  }
+
   const client = await pool.connect();
 
   try {
@@ -24,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     const magicResult = await client.query(
       `
-      select id, email, redirect_target
+      select id, email, redirect_target, code_challenge
       from magic_links
       where token_hash = $1
         and used_at is null
@@ -45,6 +62,41 @@ export async function GET(req: NextRequest) {
 
     const magicLink = magicResult.rows[0];
     const email = magicLink.email.toLowerCase();
+    const wantsApp =
+      req.nextUrl.searchParams.get("redirect") === "app" &&
+      magicLink.redirect_target !== "dashboard";
+
+    if (wantsApp && magicLink.code_challenge) {
+      // PKCE flow: no session yet. Hand the app a one-time code that is
+      // useless without the verifier only the app holds.
+      const code = createRandomToken();
+      await client.query(
+        `
+        update magic_links
+        set used_at = now(),
+            auth_code_hash = $2,
+            auth_code_expires_at = now() + interval '2 minutes'
+        where id = $1
+        `,
+        [magicLink.id, hashMagicToken(code)]
+      );
+      await client.query("commit");
+
+      const callbackUrl = new URL("relay://auth/callback");
+      callbackUrl.searchParams.set("code", code);
+      const redirect = NextResponse.redirect(callbackUrl);
+      redirect.headers.set("Cache-Control", "no-store");
+      redirect.headers.set("Referrer-Policy", "no-referrer");
+      return redirect;
+    }
+
+    if (wantsApp && process.env.RELAY_REQUIRE_PKCE === "true") {
+      await client.query("rollback");
+      return NextResponse.json(
+        { ok: false, error: "Please update Relay to sign in" },
+        { status: 400 }
+      );
+    }
 
     const userResult = await client.query(
       `
@@ -125,7 +177,10 @@ export async function GET(req: NextRequest) {
       const appCallbackUrl = new URL("relay://auth/callback");
       appCallbackUrl.searchParams.set("token", jwt);
 
-      return NextResponse.redirect(appCallbackUrl);
+      const legacyRedirect = NextResponse.redirect(appCallbackUrl);
+      legacyRedirect.headers.set("Cache-Control", "no-store");
+      legacyRedirect.headers.set("Referrer-Policy", "no-referrer");
+      return legacyRedirect;
     }
 
     return NextResponse.json({
@@ -135,13 +190,8 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     await client.query("rollback");
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("AUTH_VERIFY", error);
+    return NextResponse.json(body, { status });
   } finally {
     client.release();
   }

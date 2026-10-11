@@ -1,6 +1,7 @@
-import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { publicServerError } from "@/lib/http";
+import { verifyHmacHex } from "@/lib/signature";
 
 type LemonWebhookPayload = {
   meta?: {
@@ -14,15 +15,6 @@ type LemonWebhookPayload = {
     attributes?: Record<string, unknown>;
   };
 };
-
-function verifySignature(body: string, signature: string, secret: string) {
-  const digest = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-
-  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
-}
 
 function normalizeStatus(eventName: string, status: string | null) {
   if (eventName === "subscription_expired") return "expired";
@@ -53,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
 
-  if (!verifySignature(body, signature, secret)) {
+  if (!verifyHmacHex(body, signature, secret)) {
     return NextResponse.json(
       { ok: false, error: "invalid signature" },
       { status: 401 }
@@ -114,6 +106,8 @@ export async function POST(req: NextRequest) {
   const rawStatus = stringValue(attributes.status);
   const status = normalizeStatus(eventName, rawStatus);
 
+  const providerUpdatedAt = stringValue(attributes.updated_at);
+
   const currentPeriodEnd =
     attributes.renews_at ??
     attributes.ends_at ??
@@ -123,7 +117,7 @@ export async function POST(req: NextRequest) {
   if (!email || !subscriptionId) {
     console.log("[LEMON] missing required fields", {
       eventName,
-      email,
+      hasEmail: Boolean(email),
       subscriptionId,
     });
 
@@ -162,9 +156,10 @@ export async function POST(req: NextRequest) {
         provider_customer_id,
         provider_subscription_id,
         status,
-        current_period_end
+        current_period_end,
+        provider_updated_at
       )
-      values ($1, 'lemon_squeezy', $2, $3, $4, $5)
+      values ($1, 'lemon_squeezy', $2, $3, $4, $5, $6)
       on conflict (provider, provider_subscription_id)
       where provider_subscription_id is not null
       do update set
@@ -172,14 +167,18 @@ export async function POST(req: NextRequest) {
         provider_customer_id = excluded.provider_customer_id,
         status = excluded.status,
         current_period_end = excluded.current_period_end,
+        provider_updated_at = excluded.provider_updated_at,
         updated_at = now()
+      where subscriptions.provider_updated_at is null
+         or excluded.provider_updated_at is null
+         or excluded.provider_updated_at >= subscriptions.provider_updated_at
       `,
-      [user.id, customerId, subscriptionId, status, currentPeriodEnd]
+      [user.id, customerId, subscriptionId, status, currentPeriodEnd, providerUpdatedAt]
     );
 
     await client.query("commit");
 
-    console.log("[LEMON]", eventName, email, subscriptionId, status);
+    console.log("[LEMON]", eventName, subscriptionId, status);
 
     return NextResponse.json({
       ok: true,
@@ -191,13 +190,8 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     await client.query("rollback");
 
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("LEMON_WEBHOOK", error);
+    return NextResponse.json(body, { status });
   } finally {
     client.release();
   }

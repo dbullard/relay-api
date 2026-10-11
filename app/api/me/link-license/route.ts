@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { verifySessionJwt } from "@/lib/auth";
+import { authenticateBearer, type SessionQuery } from "@/lib/session";
 import { encryptLicenseKey } from "@/lib/licenseVault";
+import { licenseFingerprint } from "@/lib/licenseFingerprint";
+import { publicServerError } from "@/lib/http";
+import { checkRateLimit, type Query } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/clientIp";
 
 type LemonLicenseValidationResponse = {
   valid?: boolean;
@@ -69,19 +74,31 @@ async function validateLicenseKey(licenseKey: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = getBearerToken(req.headers.get("authorization"));
-
-    if (!token) {
+    const auth = await authenticateBearer(
+      req.headers.get("authorization"),
+      pool.query.bind(pool) as SessionQuery,
+      verifySessionJwt
+    );
+    if (!auth.ok) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing bearer token",
-        },
-        { status: 401 }
+        { ok: false, error: auth.error },
+        { status: auth.status }
+      );
+    }
+    const session = auth.session;
+    const linkLimit = await checkRateLimit(
+      pool.query.bind(pool) as Query,
+      `link:user:${session.userId}`,
+      10,
+      3600
+    );
+    if (!linkLimit.allowed) {
+      return NextResponse.json(
+        { ok: false, error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(linkLimit.retryAfterSeconds) } }
       );
     }
 
-    const session = verifySessionJwt(token);
     const body = await req.json();
     const licenseKey = String(body.licenseKey ?? "").trim();
 
@@ -115,6 +132,11 @@ export async function POST(req: NextRequest) {
     const activationUsageCount = validation.license_key?.activation_usage ?? null;
     const activationLimit = validation.license_key?.activation_limit ?? null;
 
+    const fingerprint = licenseFingerprint(
+      licenseKey,
+      process.env.RELAY_LICENSE_ENCRYPTION_SECRET ?? ""
+    );
+
     const params = [
       session.userId,
       maskedLicense.suffix,
@@ -127,79 +149,97 @@ export async function POST(req: NextRequest) {
       encryptedLicenseKey,
       activationUsageCount,
       activationLimit,
+      fingerprint,
     ];
 
-    const updateResult = await pool.query(
-      `
-      update licenses
-      set
-        license_key_suffix = $2,
-        customer_email = $4,
-        product_name = $5,
-        variant_name = $6,
-        status = $7,
-        expires_at = $8,
-        encrypted_license_key = $9,
-        activation_usage_count = $10,
-        activation_limit = $11,
-        source = 'lemonsqueezy',
-        last_validated_at = now()
-      where user_id = $1
-        and license_key_masked = $3
-        and source = 'lemonsqueezy'
-      returning
-        id,
-        license_key_masked,
-        customer_email,
-        product_name,
-        variant_name,
-        status,
-        activation_usage_count,
-        activation_limit,
-        expires_at,
-        source,
-        linked_at,
-        last_validated_at
-      `,
-      params
-    );
+    let result;
+    try {
+      const updateResult = await pool.query(
+        `
+        update licenses
+        set
+          license_key_suffix = $2,
+          customer_email = $4,
+          product_name = $5,
+          variant_name = $6,
+          status = $7,
+          expires_at = $8,
+          encrypted_license_key = $9,
+          activation_usage_count = $10,
+          activation_limit = $11,
+          license_key_hmac = $12,
+          source = 'lemonsqueezy',
+          last_validated_at = now()
+        where user_id = $1
+          and (license_key_hmac = $12 or (license_key_hmac is null and license_key_masked = $3))
+          and source = 'lemonsqueezy'
+        returning
+          id,
+          license_key_masked,
+          customer_email,
+          product_name,
+          variant_name,
+          status,
+          activation_usage_count,
+          activation_limit,
+          expires_at,
+          source,
+          linked_at,
+          last_validated_at
+        `,
+        params
+      );
 
-    const result = updateResult.rows.length > 0
-      ? updateResult
-      : await pool.query(
-          `
-          insert into licenses (
-            user_id,
-            license_key_suffix,
-            license_key_masked,
-            customer_email,
-            product_name,
-            variant_name,
-            status,
-            expires_at,
-            encrypted_license_key,
-            activation_usage_count,
-            activation_limit,
-            source,
-            last_validated_at
-          )
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'lemonsqueezy', now())
-          returning
-            id,
-            license_key_masked,
-            customer_email,
-            product_name,
-            variant_name,
-            status,
-            activation_usage_count,
-            activation_limit,
-            expires_at,
-            source,
-            linked_at,
-            last_validated_at
-          `,
-          params
+      result = updateResult.rows.length > 0
+        ? updateResult
+        : await pool.query(
+            `
+            insert into licenses (
+              user_id,
+              license_key_suffix,
+              license_key_masked,
+              customer_email,
+              product_name,
+              variant_name,
+              status,
+              expires_at,
+              encrypted_license_key,
+              activation_usage_count,
+              activation_limit,
+              license_key_hmac,
+              source,
+              last_validated_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'lemonsqueezy', now())
+            returning
+              id,
+              license_key_masked,
+              customer_email,
+              product_name,
+              variant_name,
+              status,
+              activation_usage_count,
+              activation_limit,
+              expires_at,
+              source,
+              linked_at,
+              last_validated_at
+            `,
+            params
+          );
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "This license is already linked to another Relay Account. Contact support@ondeckapps.com if you changed your email.",
+          },
+          { status: 409 }
         );
+      }
+      throw error;
+    }
 
     return NextResponse.json({
       ok: true,
@@ -211,12 +251,7 @@ export async function POST(req: NextRequest) {
       license: result.rows[0],
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to link license",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("LINK_LICENSE", error, "Unable to link license");
+    return NextResponse.json(body, { status });
   }
 }

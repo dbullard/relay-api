@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { NotificationTypeV2 } from "@apple/app-store-server-library";
 import { verifyAppleNotification } from "@/lib/app-store";
+import { publicServerError } from "@/lib/http";
 
 export async function POST(req: NextRequest) {
   try {
@@ -84,15 +85,7 @@ export async function POST(req: NextRequest) {
       status: decoded.record.status,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to process App Store notification",
-      },
-      { status: 500 }
-    );
+    const { body, status } = publicServerError("APPLE_WEBHOOK", error);
+    return NextResponse.json(body, { status });
   }
 }
