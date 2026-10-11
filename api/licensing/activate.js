@@ -1,7 +1,11 @@
 const { trimLicenseKey, validLicenseKey, validInstanceName } = require("../_lib/limits");
 const pool = require("../_lib/pool");
 const { enforce } = require("../_lib/rateLimit");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
 const { recordLegacyLicenseTraffic } = require("../_lib/legacyTraffic");
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
+const { waitUntil } = require("@vercel/functions");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -28,12 +32,13 @@ module.exports = async (req, res) => {
       });
     }
 
-    await recordLegacyLicenseTraffic(pool.query.bind(pool), {
+    // Keep recording alive after the response without delaying license checks.
+    waitUntil(recordLegacyLicenseTraffic(pool.query.bind(pool), {
       endpoint: "activate",
       licenseKey,
       appVersion,
       secret: process.env.RELAY_LICENSE_ENCRYPTION_SECRET
-    });
+    }));
 
     const lsResponse = await fetch("https://api.lemonsqueezy.com/v1/licenses/activate", {
       method: "POST",

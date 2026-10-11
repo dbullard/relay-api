@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
 const crypto = require("node:crypto");
 
 // Same construction as lib/licenseFingerprint.ts (HMAC-SHA256, hex), but the

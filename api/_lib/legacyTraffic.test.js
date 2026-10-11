@@ -1,5 +1,8 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
 const test = require("node:test");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
 const assert = require("node:assert/strict");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Legacy Vercel functions use CommonJS.
 const { clientFingerprint, recordLegacyLicenseTraffic } = require("./legacyTraffic");
 
 const SECRET = "test-secret";
