@@ -3,6 +3,8 @@ import { pool } from "@/lib/db";
 import { getBearerToken, verifySessionJwt } from "@/lib/auth";
 import { encryptLicenseKey } from "@/lib/licenseVault";
 import { publicServerError } from "@/lib/http";
+import { checkRateLimit, type Query } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/clientIp";
 
 type LemonLicenseValidationResponse = {
   valid?: boolean;
@@ -83,6 +85,19 @@ export async function POST(req: NextRequest) {
     }
 
     const session = verifySessionJwt(token);
+    const linkLimit = await checkRateLimit(
+      pool.query.bind(pool) as Query,
+      `link:user:${session.userId}`,
+      10,
+      3600
+    );
+    if (!linkLimit.allowed) {
+      return NextResponse.json(
+        { ok: false, error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(linkLimit.retryAfterSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const licenseKey = String(body.licenseKey ?? "").trim();
 

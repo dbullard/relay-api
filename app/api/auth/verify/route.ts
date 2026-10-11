@@ -6,8 +6,23 @@ import {
   signSessionJwt,
 } from "@/lib/auth";
 import { publicServerError } from "@/lib/http";
+import { checkRateLimit, type Query } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/clientIp";
 
 export async function GET(req: NextRequest) {
+  const verifyLimit = await checkRateLimit(
+    pool.query.bind(pool) as Query,
+    `verify:ip:${clientIp(req.headers)}`,
+    30,
+    600
+  );
+  if (!verifyLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(verifyLimit.retryAfterSeconds) } }
+    );
+  }
+
   const client = await pool.connect();
 
   try {
