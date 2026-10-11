@@ -28,11 +28,12 @@ export function hashSessionToken(token: string) {
 export function signSessionJwt(payload: { userId: string; email: string }) {
   return jwt.sign(payload, JWT_SECRET!, {
     expiresIn: "30d",
+    algorithm: "HS256",
   });
 }
 
 export function verifySessionJwt(token: string) {
-  return jwt.verify(token, JWT_SECRET!) as {
+  return jwt.verify(token, JWT_SECRET!, { algorithms: ["HS256"] }) as {
     userId: string;
     email: string;
   };

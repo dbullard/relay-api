@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { verifySessionJwt } from "@/lib/auth";
+import { authenticateBearer, type SessionQuery } from "@/lib/session";
 
 function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
   if (
@@ -21,22 +22,18 @@ function isSubscriptionPro(status: string, currentPeriodEnd: string | null) {
 
 export async function GET(req: NextRequest) {
   try {
-    const token = getBearerToken(req.headers.get("authorization"));
-
-    if (!token) {
+    const auth = await authenticateBearer(
+      req.headers.get("authorization"),
+      pool.query.bind(pool) as SessionQuery,
+      verifySessionJwt
+    );
+    if (!auth.ok) {
       return NextResponse.json(
-        {
-          ok: false,
-          authenticated: false,
-          pro: false,
-          subscriptions: [],
-          error: "Missing bearer token",
-        },
-        { status: 401 }
+        { ok: false, authenticated: false, pro: false, subscriptions: [], error: auth.error },
+        { status: auth.status }
       );
     }
-
-    const session = verifySessionJwt(token);
+    const session = auth.session;
 
     const result = await pool.query(
       `

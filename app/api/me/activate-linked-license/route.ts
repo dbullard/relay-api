@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { getBearerToken, verifySessionJwt } from "@/lib/auth";
+import { verifySessionJwt } from "@/lib/auth";
+import { authenticateBearer, type SessionQuery } from "@/lib/session";
 import { decryptLicenseKey } from "@/lib/licenseVault";
 import { publicServerError } from "@/lib/http";
 
@@ -125,19 +126,22 @@ function activeEntitlementFromLemon(
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await authenticateBearer(
+    req.headers.get("authorization"),
+    pool.query.bind(pool) as SessionQuery,
+    verifySessionJwt
+  );
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.error },
+      { status: auth.status }
+    );
+  }
+  const session = auth.session;
+
   const client = await pool.connect();
 
   try {
-    const token = getBearerToken(req.headers.get("authorization"));
-
-    if (!token) {
-      return NextResponse.json(
-        { ok: false, error: "Missing bearer token" },
-        { status: 401 }
-      );
-    }
-
-    const session = verifySessionJwt(token);
     const body = await req.json();
 
     const instanceName = String(body.instanceName ?? "").trim();
