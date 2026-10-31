@@ -13,7 +13,7 @@
     "@apple/app-store-server-library": "^3.1.0",
     "@vercel/functions": "^3.9.11",
     "jsonwebtoken": "^9.0.3",
-    "next": "16.2.6",
+    "next": "16.4.3",
     "pg": "^8.21.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -27,9 +27,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "^4.6.6"
+    }
   }
 }
